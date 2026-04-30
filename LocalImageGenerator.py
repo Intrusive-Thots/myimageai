@@ -58,6 +58,29 @@ def classify_model(name):
 IMG_TAG = "[IMG] "
 VID_TAG = "[VID] "
 
+# Files that appear in the checkpoints list but are NOT valid checkpoints.
+# They are VAEs, text encoder shards, LoRAs, or diffusion-only models
+# that will crash CheckpointLoaderSimple.
+BAD_CKPT_KEYWORDS = [
+    "_vae", "vae.", "vae (",         # VAE weights
+    "ae.safetensors",                 # autoencoder
+    "text_encoder",                   # text encoder shards
+    "diffusion_pytorch_model",        # raw diffusion shards
+    "control-lora", "control_lora",   # LoRAs
+    "model-000",                      # sharded model parts
+    "/.safetensors", "\\.safetensors", # empty-name junk
+]
+
+def is_valid_checkpoint(name):
+    """Return False for known non-checkpoint files."""
+    if not name or name.strip() == ".safetensors":
+        return False
+    low = name.lower()
+    for bad in BAD_CKPT_KEYWORDS:
+        if bad in low:
+            return False
+    return True
+
 def tag_model(name):
     return (VID_TAG if classify_model(name) == "video" else IMG_TAG) + name
 
@@ -517,11 +540,12 @@ class MainWindow(QMainWindow):
         try:
             data = requests.get(url + "/object_info").json()
             raw = data["CheckpointLoaderSimple"]["input"]["required"]["ckpt_name"][0]
-            self.all_models = list(raw)
-            imgs = [tag_model(m) for m in raw if classify_model(m) == "image"]
-            vids = [tag_model(m) for m in raw if classify_model(m) == "video"]
-            if not vids: vids = [tag_model(m) for m in raw]
-            if not imgs: imgs = [tag_model(m) for m in raw]
+            valid = [m for m in raw if is_valid_checkpoint(m)]
+            self.all_models = valid
+            imgs = [tag_model(m) for m in valid if classify_model(m) == "image"]
+            vids = [tag_model(m) for m in valid if classify_model(m) == "video"]
+            if not vids: vids = [tag_model(m) for m in valid]
+            if not imgs: imgs = [tag_model(m) for m in valid]
             self.img_model.clear(); self.img_model.addItems(imgs)
             self.vid_model.clear(); self.vid_model.addItems(vids)
             self.gen_btn.setEnabled(True)
